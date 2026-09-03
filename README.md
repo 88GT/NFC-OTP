@@ -10,14 +10,14 @@ The configuration is normally stored in the registry, under HKCU\Software\YubiNF
 
 ## Configuration Values:
 
-+TargetWindowTitle = String value of the target window title.  If not sure, can use the app to determine the name
-+Timeout           = Integer of seconds to wait before attempting another OTP read (default 10)
-+ActiveWindowDelay = Integer in Milliseconds to delay when window is activated (default 300)
-+KeystrokeDelay    = Integer in Milliseconds to delay the keystrokes when typing (default 10)
-+PortBinding       = Integer - This is a high range port simply used to prevent multiple instances from running (default 48237)
-+ShowNotifications = Boolean True or false setting for showing the pop up notifications (default True)
-+EnableLogs        = Boolean True or false setting for diagnostic logging of activity (default True)
-+MaxLogHistory     = Integer for Maximum number of lines to keep in the log, older lines will roll off (default 500)
+* TargetWindowTitle = String value of the target window title.  If not sure, can use the app to determine the name
+* Timeout           = Integer of seconds to wait before attempting another OTP read (default 10)
+* ActiveWindowDelay = Integer in Milliseconds to delay when window is activated (default 300)
+* KeystrokeDelay    = Integer in Milliseconds to delay the keystrokes when typing (default 10)
+* PortBinding       = Integer - This is a high range port simply used to prevent multiple instances from running (default 48237)
+* ShowNotifications = Boolean True or false setting for showing the pop up notifications (default True)
+* EnableLogs        = Boolean True or false setting for diagnostic logging of activity (default True)
+* MaxLogHistory     = Integer for Maximum number of lines to keep in the log, older lines will roll off (default 500)
 
 # Installation
 
