@@ -8,16 +8,16 @@ This is a Windows system tray application that monitors for a target application
 
 The configuration is normally stored in the registry, under HKCU\Software\YubiNFC-OTP.  However, on first run, it will look for the existence of a config.ini file in the application directory.  If present, it will load those values into the registry.  If not present, it will use hard coded default values.
 
-Configuration Values:
----------------------
-TargetWindowTitle  // String value of the target window title.  If not sure, can use the app to determine
-Timeout            // Integer of seconds to wait before attempting another OTP read (default 10)
-ActiveWindowDelay  // Integer in Milliseconds to delay when window is activated (default 300)
-KeystrokeDelay     // Integer in Milliseconds to delay the keystrokes when typing (default 10)
-PortBinding        // Integer - This is a high range port simply used to prevent multiple instances from running (default 48237)
-ShowNotifications  // Boolean True or false setting for showing the pop up notifications (default True)
-EnableLogs         // Boolean True or false setting for diagnostic logging of activity (default True)
-MaxLogHistory      // Integer for Maximum number of lines to keep in the log, older lines will roll off (default 500)
+## Configuration Values:
+
++TargetWindowTitle = String value of the target window title.  If not sure, can use the app to determine the name
++Timeout           = Integer of seconds to wait before attempting another OTP read (default 10)
++ActiveWindowDelay = Integer in Milliseconds to delay when window is activated (default 300)
++KeystrokeDelay    = Integer in Milliseconds to delay the keystrokes when typing (default 10)
++PortBinding       = Integer - This is a high range port simply used to prevent multiple instances from running (default 48237)
++ShowNotifications = Boolean True or false setting for showing the pop up notifications (default True)
++EnableLogs        = Boolean True or false setting for diagnostic logging of activity (default True)
++MaxLogHistory     = Integer for Maximum number of lines to keep in the log, older lines will roll off (default 500)
 
 # Installation
 
