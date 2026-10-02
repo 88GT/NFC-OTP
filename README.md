@@ -6,7 +6,7 @@ This is a Windows system tray application that monitors for a target application
 
 # Configuration
 
-The configuration is normally stored in the registry, under HKCU\Software\YubiNFC-OTP.  However, on first run, it will look for the existence of a config.ini file in the application directory.  If present, it will load those values into the registry.  If not present, it will use hard coded default values.
+The configuration is normally stored in the registry, under HKCU\Software\YubiOTP-NFC.  However, on first run, it will look for the existence of a config.ini file in the application directory.  If present, it will load those values into the registry.  If not present, it will use hard coded default values.
 
 ## Configuration Values:
 
