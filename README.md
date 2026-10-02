@@ -28,7 +28,7 @@ Sample Installation powershell script is provided.  In order for the application
 
 # Usage
 
-Once the application is launched, the icon will appear in the system tray.  Right click to show a menu that allows access to the diagnostic screen.  The diagnostic screen will display the active window, as well as various diagnostic messages useful for testing purposes.  These messages can be exported to a file if necessary.  The menu also has an "about" option and the "exit" option.
+Once the application is launched, the icon will appear in the system tray.  Right click to show a menu that allows access to the diagnostic screen.  The diagnostic screen will display the active window, as well as various diagnostic messages useful for testing purposes.  These messages can be exported to a file if necessary.  The menu also has an "about" option and the "exit" option.  To pause all operations, double click the tray icon and the icon will turn red to indicate the paused state.  The state will also be reflected in the diagnostic log.  Double click again to unpause.
 
 # Version History
 <ins>0.87</ins>
@@ -39,6 +39,7 @@ Once the application is launched, the icon will appear in the system tray.  Righ
 * Added Feature: NFC Reader Whitelist (Look for specific readers)
 * Added Feature: Pause mode - pause scanning for active windows / OTP capture (Double click tray icon to toggle)
 * Improvement: Instead of pop up notifications being on or off, set additional granularity (0=Off, 1=Success Only, 2=All)
+* Various bug fixes and performance improvements
 
 <ins>0.80</ins>
 * Initial self signed compiled release
