@@ -242,6 +242,9 @@ func findPICCReader(ctx *scard.Context, cfg *Config) (string, error) {
 		return "", fmt.Errorf("ERROR: No readers found")
 	}
 
+	// Log the number of readers found - so we can compare later to how many are being removed
+	LogDiag("Found %d readers", len(readers))
+
 	// Prefer contactless/PICC interface explicitly else check for a non-SAM interface
 	// This loop needs to look through all the list of readers found to first return a PICC or SAM reader
 	for _, r := range readers {
@@ -264,6 +267,7 @@ func findPICCReader(ctx *scard.Context, cfg *Config) (string, error) {
 			// Perform the removal
 			readers[i] = readers[len(readers)-1]
 			readers = readers[:len(readers)-1]
+			i--
 		}
 	}
 
