@@ -10,14 +10,17 @@ The configuration is normally stored in the registry, under HKCU\Software\YubiNF
 
 ## Configuration Values:
 
-* TargetWindowTitle = String value of the target window title.  If not sure, can use the app to determine the name
+* TargetWindowTitle = String array of values for the target window title.  If not sure, can use the diagnostic window in the app to help.  If set to ##ALL## then it will output to whatever window has the focus.
 * Timeout           = Integer of seconds to wait before attempting another OTP read (default 10)
 * ActiveWindowDelay = Integer in Milliseconds to delay when window is activated (default 300)
 * KeystrokeDelay    = Integer in Milliseconds to delay the keystrokes when typing (default 10)
+* OTPCaptureTimeout = Integer in Seconds to discard the unused OTP and reset the capture process (default 60)
 * PortBinding       = Integer - This is a high range port simply used to prevent multiple instances from running (default 48237)
-* ShowNotifications = Boolean True or false setting for showing the pop up notifications (default True)
+* ShowNotifications = Integer setting of 0,1,2 for showing the pop up notifications (default 1)
 * EnableLogs        = Boolean True or false setting for diagnostic logging of activity (default True)
 * MaxLogHistory     = Integer for Maximum number of lines to keep in the log, older lines will roll off (default 500)
+* ReaderBlackList   = String array of values to blacklist invalid readers (eg, YubiKey plugged in to USB)
+* ReaderWhiteList   = String array of values to whitelist or "prefer" specific readers
 
 # Installation
 
@@ -27,9 +30,19 @@ Sample Installation powershell script is provided.  In order for the application
 
 Once the application is launched, the icon will appear in the system tray.  Right click to show a menu that allows access to the diagnostic screen.  The diagnostic screen will display the active window, as well as various diagnostic messages useful for testing purposes.  These messages can be exported to a file if necessary.  The menu also has an "about" option and the "exit" option.
 
-# Version
+# Version History
+<ins>0.87</ins>
+Added Feature: OTP Timeout Value - Discard unused OTP and reset capture process
+Added Feature: Add support for multiple windows to trigger OTP capture (Changed Target Window Title to a string array)
+Added Feature: Add support for OTP input immediately into active window (no scanning) (Set ##ALL## in Target Window Title config)
+Added Feature: NFC Reader Blacklist (Block "fake" readers)
+Added Feature: NFC Reader Whitelist (Look for specific readers)
+Added Feature: Pause mode - pause scanning for active windows / OTP capture (Double click tray icon to toggle)
+Improvement: Instead of pop up notifications being on or off, set additional granularity (0=Off, 1=Success Only, 2=All)
 
-Current version is 0.80
-To do:
-- Add configuration option for URI - I would like it to be more flexible in URI handling
-- More testing on various Windows builds
+<ins>0.80</ins>
+Initial self signed compiled release
+Bug fixes and performance enhancements
+
+<ins>0.76</ins>
+Initial Internal Release

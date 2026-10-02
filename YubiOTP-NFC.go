@@ -27,7 +27,7 @@ import (
 // (c)2026 - Beau Anderson
 // ------------------------
 //
-// Proof of concept - Version 0.80 - 08/30/2026
+// Beta - Version 0.87 - 10/02/2026
 //
 
 // This is for the tray icon of the program
@@ -37,7 +37,10 @@ import (
 // this is correct syntax
 //
 //go:embed tray.png
-var iconData []byte
+var iconNormal []byte
+
+//go:embed traypaused.png
+var iconPaused []byte
 
 // Global state for diagnostics logging
 var (
@@ -45,6 +48,7 @@ var (
 	logHistory     []string
 	logsEnabled    bool
 	maxLogLength   int
+	appPaused      bool
 	diagHwnd       uintptr // Handle to the diagnostics window
 	activeEditHwnd uintptr // Pointer to the active edit box
 )
@@ -111,7 +115,7 @@ const (
 	vkReturn         = 0x0D
 
 	// Registry key path under HKEY_CURRENT_USER
-	regKeyPath = `Software\YubiNFC-OTP`
+	regKeyPath = `Software\YubiOTP-NFC`
 
 	// ModHex valid character set
 	modhexChars = "cbdefghijklnrtuv"
@@ -158,14 +162,17 @@ type MSG struct {
 
 // Configuration
 type Config struct {
-	TargetWindowTitle string
-	Timeout           int  // seconds to wait before attempting another OTP read (default 10)
-	ActiveWindowDelay int  // Milliseconds to delay when window is activated (default 300)
-	KeystrokeDelay    int  // Milliseconds to delay the keystrokes when typing (default 10)
-	PortBinding       int  // This is a high range port simply used to prevent multiple instances from running (default 48237)
-	ShowNotifications bool // True or false setting for showing the pop up notifications (default True)
-	EnableLogs        bool // True or false setting for diagnostic logging of activity (default True)
-	MaxLogHistory     int  // Maximum number of lines to keep in the log, older lines will roll off (Default 500)
+	TargetWindowTitle []string // Titles of target windows.  If set to ##ALL## then it will output to whatever window has the focus
+	Timeout           int      // seconds to wait before attempting another OTP read (default 20)
+	ActiveWindowDelay int      // Milliseconds to delay when window is activated (default 300)
+	KeystrokeDelay    int      // Milliseconds to delay the keystrokes when typing (default 10)
+	OTPCaptureTimeout int      // Timeout value for discarding the unused OTP and resetting the capture process (default 60)
+	PortBinding       int      // This is a high range port simply used to prevent multiple instances from running (default 48237)
+	ShowNotifications int      // 0, 1, or 2 setting for showing the pop up notifications (default 1 - Suppress Fail Messages)
+	EnableLogs        bool     // True or false setting for diagnostic logging of activity (default True)
+	MaxLogHistory     int      // Maximum number of lines to keep in the log, older lines will roll off (Default 500)
+	ReaderBlackList   []string // Array of strings that are NFC reader names that will be blacklisted
+	ReaderWhiteList   []string // Array of strings that are NFC reader names that will be whitelisted
 }
 
 // APDU Commands for reading the YubiKey NDEF
@@ -228,7 +235,7 @@ func emulateTyping(text string, cfg *Config) {
 }
 
 // --- SmartCard / NFC Logic ---
-func findPICCReader(ctx *scard.Context) (string, error) {
+func findPICCReader(ctx *scard.Context, cfg *Config) (string, error) {
 	readers, err := ctx.ListReaders()
 	if err != nil || len(readers) == 0 {
 		LogDiag("ERROR: No readers found")
@@ -246,11 +253,13 @@ func findPICCReader(ctx *scard.Context) (string, error) {
 	}
 
 	// Next, this code is run if so far we have a list of readers, but none match "PICC", " CL ", or "SAM" in the name
-	// So now we need to return whatever we have left, but we need to remove the YubiKey (If YubiKey is plugged into USB)
+	// So now we need to return whatever we have left, but we need to remove any readers that are on the ReaderBlackList
+	// NOTE:  IF a yubikey is plugged into USB, it will show up as a reader, so the blacklist should always have FIDO on it
 	for i := 0; i < len(readers); i++ {
 		r := readers[i]
-		name := strings.ToUpper(r)
-		if strings.Contains(name, "FIDO") {
+		name := strings.ToLower(r)
+		matched, _ := checkForMatch(cfg.ReaderBlackList, name)
+		if matched {
 			LogDiag("Removing Invalid Reader: %s", r)
 			// Perform the removal
 			readers[i] = readers[len(readers)-1]
@@ -258,15 +267,31 @@ func findPICCReader(ctx *scard.Context) (string, error) {
 		}
 	}
 
-	// Because the previous check might have removed the only reader we found, we need to make sure that
+	// Because the blacklist check might have removed the only reader we found, we need to make sure that
 	// we are checking to see if the list is empty, and if so, returning "No readers found"
 	if len(readers) == 0 {
 		LogDiag("ERROR: No readers found")
 		return "", fmt.Errorf("ERROR: No readers found")
 	}
 
-	//  If there are any remaining readers left, lets log and return them...
-	LogDiag("Unusual NFC Reader Found: %s", readers[0])
+	// We need to check for the existence of Whitelisted Readers
+	// Right now it will return the first whitelisted reader that is found
+	for i := 0; i < len(readers); i++ {
+		r := readers[i]
+		name := strings.ToLower(r)
+		matched, _ := checkForMatch(cfg.ReaderWhiteList, name)
+		if matched {
+			LogDiag("Using Whitelisted Reader: %s", r)
+			return readers[i], nil
+		}
+	}
+
+	//  If there are any remaining readers left, lets log and return the first one...
+	for i := 0; i < len(readers); i++ {
+		LogDiag("Allowed NFC Reader Found: %s", readers[i])
+	}
+
+	// Known limitation - it is only returning the first allowed reader it finds - need to improve this to return all readers
 	return readers[0], nil
 }
 
@@ -621,7 +646,7 @@ func loadConfig() (*Config, error) {
 	// 1. Try reading from Registry first
 	cfg, err := readFromRegistry()
 	if err == nil {
-		LogDiag("[Config Source]: Loaded from Windows Registry (HKCU\\Software\\YubiNFC-OTP)")
+		LogDiag("[Config Source]: Loaded from Windows Registry (HKCU\\Software\\YubiOTP-NFC)")
 		return cfg, nil
 	}
 
@@ -637,7 +662,7 @@ func loadConfig() (*Config, error) {
 	if err := saveToRegistry(cfg); err != nil {
 		LogDiag("Warning: Failed to write to registry: %v\n", err)
 	} else {
-		LogDiag("[Config Action]: Saved INI values to HKCU\\Software\\YubiNFC-OTP")
+		LogDiag("[Config Action]: Saved INI values to HKCU\\Software\\YubiOTP-NFC")
 	}
 
 	return cfg, nil
@@ -651,7 +676,7 @@ func readFromRegistry() (*Config, error) {
 	}
 	defer k.Close()
 
-	title, _, err := k.GetStringValue("TargetWindowTitle")
+	title, _, err := k.GetStringsValue("TargetWindowTitle")
 	if err != nil {
 		return nil, err
 	}
@@ -671,12 +696,17 @@ func readFromRegistry() (*Config, error) {
 		return nil, err
 	}
 
+	OTPCaptureTimeoutVal, _, err := k.GetIntegerValue("OTPCaptureTimeout")
+	if err != nil {
+		return nil, err
+	}
+
 	PortBindingVal, _, err := k.GetIntegerValue("PortBinding")
 	if err != nil {
 		return nil, err
 	}
 
-	ShowNotificationsVal, _, err := k.GetStringValue("ShowNotifications")
+	ShowNotificationsVal, _, err := k.GetIntegerValue("ShowNotifications")
 	if err != nil {
 		return nil, err
 	}
@@ -691,40 +721,60 @@ func readFromRegistry() (*Config, error) {
 		return nil, err
 	}
 
-	ShowNotificationsBool, err := strconv.ParseBool(ShowNotificationsVal)
+	ReaderBlackListVal, _, err := k.GetStringsValue("ReaderBlackList")
+	if err != nil {
+		return nil, err
+	}
+
+	ReaderWhiteListVal, _, err := k.GetStringsValue("ReaderWhiteList")
+	if err != nil {
+		return nil, err
+	}
+
 	EnableLogsBool, err := strconv.ParseBool(EnableLogsVal)
 
 	return &Config{
-		TargetWindowTitle: title,
+		TargetWindowTitle: []string(title),
 		Timeout:           int(timeoutVal),
 		ActiveWindowDelay: int(ActiveWindowDelayVal),
 		KeystrokeDelay:    int(KeystrokeDelayVal),
+		OTPCaptureTimeout: int(OTPCaptureTimeoutVal),
 		PortBinding:       int(PortBindingVal),
-		ShowNotifications: bool(ShowNotificationsBool),
+		ShowNotifications: int(ShowNotificationsVal),
 		EnableLogs:        bool(EnableLogsBool),
 		MaxLogHistory:     int(MaxLogHistoryVal),
+		ReaderBlackList:   []string(ReaderBlackListVal),
+		ReaderWhiteList:   []string(ReaderWhiteListVal),
 	}, nil
 }
 
 // parseINIFile reads and parses key-value pairs line by line
 func parseINIFile(filepath string) (*Config, error) {
-	file, err := os.Open(filepath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
+	// Default fallback values in case install is missing the INI file or it is malformed
 	cfg := &Config{
-		// Default fallback values in case key is missing in INI file
-		TargetWindowTitle: "Notepad",
+		TargetWindowTitle: []string{"Notepad"},
 		Timeout:           10,
 		ActiveWindowDelay: 300,
 		KeystrokeDelay:    10,
+		OTPCaptureTimeout: 60,
 		PortBinding:       48237,
-		ShowNotifications: true,
+		ShowNotifications: 1,
 		EnableLogs:        true,
 		MaxLogHistory:     500,
+		ReaderBlackList:   []string{"BROADCOM", "FIDO"},
+		ReaderWhiteList:   []string{"ACS"},
 	}
+
+	// Open the file or fall back to the defaults above if the file is missing
+	file, err := os.Open(filepath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			LogDiag("Config.ini not found in application folder.  Using Hardcoded Values")
+			return cfg, nil
+		}
+		return cfg, err
+	}
+	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -746,7 +796,7 @@ func parseINIFile(filepath string) (*Config, error) {
 
 		switch key {
 		case "TargetWindowTitle":
-			cfg.TargetWindowTitle = val
+			cfg.TargetWindowTitle = strings.Split(string(val), ",")
 		case "Timeout":
 			if timeoutInt, err := strconv.Atoi(val); err == nil {
 				cfg.Timeout = timeoutInt
@@ -759,30 +809,34 @@ func parseINIFile(filepath string) (*Config, error) {
 			if KeystrokeDelayInt, err := strconv.Atoi(val); err == nil {
 				cfg.KeystrokeDelay = KeystrokeDelayInt
 			}
+		case "OTPCaptureTimeout":
+			if OTPCaptureTimeoutInt, err := strconv.Atoi(val); err == nil {
+				cfg.OTPCaptureTimeout = OTPCaptureTimeoutInt
+			}
 		case "PortBinding":
 			if PortBindingInt, err := strconv.Atoi(val); err == nil {
 				cfg.PortBinding = PortBindingInt
 			}
 		case "ShowNotifications":
-			ShowNotificationsStr := val
-			ShowNotificationsBool, err := strconv.ParseBool(ShowNotificationsStr)
-			if err != nil {
-				LogDiag("Value for ShowNotifications is not true or false!  Setting to true")
-				cfg.ShowNotifications = true
+			if ShowNotificationsInt, err := strconv.Atoi(val); err == nil {
+				cfg.ShowNotifications = ShowNotificationsInt
 			}
-			cfg.ShowNotifications = ShowNotificationsBool
 		case "EnableLogs":
 			EnableLogsStr := val
 			EnableLogsBool, err := strconv.ParseBool(EnableLogsStr)
 			if err != nil {
 				LogDiag("Value for EnableLogs is not true or false!  Setting to true")
-				cfg.EnableLogs = true
+				EnableLogsBool = true
 			}
 			cfg.EnableLogs = EnableLogsBool
 		case "MaxLogHistory":
 			if MaxLogHistoryInt, err := strconv.Atoi(val); err == nil {
 				cfg.MaxLogHistory = MaxLogHistoryInt
 			}
+		case "ReaderBlackList":
+			cfg.ReaderBlackList = strings.Split(string(val), ",")
+		case "ReaderWhiteList":
+			cfg.ReaderWhiteList = strings.Split(string(val), ",")
 		}
 	}
 
@@ -801,7 +855,7 @@ func saveToRegistry(cfg *Config) error {
 	}
 	defer k.Close()
 
-	if err := k.SetStringValue("TargetWindowTitle", cfg.TargetWindowTitle); err != nil {
+	if err := k.SetStringsValue("TargetWindowTitle", cfg.TargetWindowTitle); err != nil {
 		return err
 	}
 
@@ -817,11 +871,15 @@ func saveToRegistry(cfg *Config) error {
 		return err
 	}
 
+	if err := k.SetDWordValue("OTPCaptureTimeout", uint32(cfg.OTPCaptureTimeout)); err != nil {
+		return err
+	}
+
 	if err := k.SetDWordValue("PortBinding", uint32(cfg.PortBinding)); err != nil {
 		return err
 	}
 
-	if err := k.SetStringValue("ShowNotifications", strconv.FormatBool(cfg.ShowNotifications)); err != nil {
+	if err := k.SetDWordValue("ShowNotifications", uint32(cfg.ShowNotifications)); err != nil {
 		return err
 	}
 
@@ -833,7 +891,30 @@ func saveToRegistry(cfg *Config) error {
 		return err
 	}
 
+	if err := k.SetStringsValue("ReaderBlackList", cfg.ReaderBlackList); err != nil {
+		return err
+	}
+
+	if err := k.SetStringsValue("ReaderWhiteList", cfg.ReaderWhiteList); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// Function to check if the title window matches the configuration of title windows, or if ##ALL## is set
+func checkForMatch(configValues []string, currentValue string) (matched bool, allMode bool) {
+	lowerCaseVal := strings.ToLower(currentValue)
+
+	for _, checker := range configValues {
+		if checker == "##ALL##" {
+			return true, true
+		}
+		if strings.Contains(lowerCaseVal, strings.ToLower(checker)) {
+			matched = true
+		}
+	}
+	return matched, false
 }
 
 // runNFCScanner handles window focus checking and NFC card reading asynchronously.
@@ -846,87 +927,120 @@ func runNFCScanner(ctx *scard.Context, cfg *Config) {
 	LogDiag("Monitoring active windows... '%s' has the focus.", previousTitle)
 
 	for {
-		currentTitle := getActiveWindowTitle()
+		if !appPaused {
+			currentTitle := getActiveWindowTitle()
 
-		if currentTitle != previousTitle {
-			LogDiag("Monitoring active windows... '%s' has the focus.", currentTitle)
-			previousTitle = currentTitle
-		}
-
-		if strings.Contains(strings.ToLower(currentTitle), strings.ToLower(cfg.TargetWindowTitle)) {
-			LogDiag("[!] Match Found: '%s'", currentTitle)
-
-			readerName, err := findPICCReader(ctx)
-			if err != nil {
-				LogDiag("No PC/SC readers found. Plug in reader and restart.")
-				// Show Pop up notification, if enabled
-				if cfg.ShowNotifications {
-					// Use Beeep to show a toast notification
-					notify := beeep.Notify("YubiOTP NFC", "No PC/SC readers found. Plug in reader and retry.", iconData)
-					if notify != nil {
-						LogDiag("Failed to show notification: No PC/SC readers found.")
-					}
-				}
-				// Prevent heavy loop hammering when reader is unplugged by 30x the active window delay (so 9 seconds by default)
-				time.Sleep((time.Duration(cfg.ActiveWindowDelay) * time.Millisecond) * 30)
-				continue
+			if currentTitle != previousTitle {
+				LogDiag("Monitoring active windows... '%s' has the focus.", currentTitle)
+				previousTitle = currentTitle
 			}
 
-			LogDiag("Using reader interface: %s", readerName)
-			LogDiag("Waiting for tap...")
+			matched, isAll := checkForMatch(cfg.TargetWindowTitle, currentTitle)
 
-			otp, err := readOTPOnce(ctx, readerName, cfg)
-			if err != nil {
-				LogDiag("Read failed: %v -- tap again.", err)
-				// Show Pop up notification, if enabled
-				if cfg.ShowNotifications {
-					// Use Beeep to show a toast notification
-					notify := beeep.Notify("YubiOTP NFC", "Read failed: %v -- tap again.", iconData)
-					if notify != nil {
-						LogDiag("Failed to show notification: Read failed.")
-					}
+			if matched {
+				if isAll {
+					LogDiag("[!] System Set to match ALL windows with ##ALL## parameter")
+				} else {
+					LogDiag("[!] Match Found: '%s'", currentTitle)
 				}
-				// Double the time duration for testing - can change multiplier as needed
-				time.Sleep((time.Duration(cfg.ActiveWindowDelay) * time.Millisecond) * 2)
-				continue
-			}
 
-			LogDiag("OTP captured. Checking that target window is still active before typing...")
-
-			// Active window confirmation loop
-			for {
-				title := getActiveWindowTitle()
-
-				if strings.Contains(strings.ToLower(title), strings.ToLower(cfg.TargetWindowTitle)) {
-					LogDiag("Active Window Matches. Typing OTP into '%s'", title)
-
-					time.Sleep(time.Duration(cfg.ActiveWindowDelay) * time.Millisecond)
-					emulateTyping(otp, cfg)
-
+				readerName, err := findPICCReader(ctx, cfg)
+				if err != nil {
+					LogDiag("No PC/SC readers found. Plug in reader and restart.")
 					// Show Pop up notification, if enabled
-					if cfg.ShowNotifications {
+					if cfg.ShowNotifications >= 2 {
 						// Use Beeep to show a toast notification
-						notify := beeep.Notify("YubiOTP NFC", "OTP Captured Successfully", iconData)
+						notify := beeep.Notify("YubiOTP NFC", "No PC/SC readers found. Plug in reader and retry.", iconNormal)
 						if notify != nil {
-							LogDiag("Failed to show notification: OTP Captured Successfully")
+							LogDiag("Failed to show notification: No PC/SC readers found.")
 						}
 					}
-
-					// Clear the otp variable
-					otp = "###########"
-
-					// Countdown loop
-					for countdown := cfg.Timeout; countdown > 0; countdown-- {
-						LogDiag("Re-Scanning OTP in '%d' seconds", countdown)
-						time.Sleep(1 * time.Second)
-					}
-					LogDiag("Task complete. Going back to scanning for OTP.")
-					break
+					// Prevent heavy loop hammering when reader is unplugged by 30x the active window delay (so 9 seconds by default)
+					time.Sleep((time.Duration(cfg.ActiveWindowDelay) * time.Millisecond) * 30)
+					continue
 				}
-				time.Sleep(time.Duration(cfg.ActiveWindowDelay) * time.Millisecond)
+
+				LogDiag("Using reader interface: %s", readerName)
+				LogDiag("Waiting for tap...")
+
+				otp, err := readOTPOnce(ctx, readerName, cfg)
+				if err != nil {
+					LogDiag("Read failed: %v -- tap again.", err)
+					// Show Pop up notification, if enabled
+					if cfg.ShowNotifications >= 2 {
+						// Use Beeep to show a toast notification
+						notify := beeep.Notify("YubiOTP NFC", "Read failed: Try a longer tap", iconNormal)
+						if notify != nil {
+							LogDiag("Failed to show notification: Read failed.")
+						}
+					}
+					// Double the time duration for testing - can change multiplier as needed
+					time.Sleep((time.Duration(cfg.ActiveWindowDelay) * time.Millisecond) * 2)
+					continue
+				}
+
+				LogDiag("OTP captured. Checking that target window is still active before typing...")
+
+				// This makes a counter value by dividing the active window delay into the OTP timeout value.  EG 300 ms into 60 seconds is 200
+				// The reset counter will be incremented until it gets to the divider value and this will trigger the timeout
+				divider := (cfg.OTPCaptureTimeout * 1000) / cfg.ActiveWindowDelay
+				resetCounter := 0
+
+				// Active window confirmation check loop (makes sure active window is a match before typing OTP)
+				for {
+					title := getActiveWindowTitle()
+
+					matched, isAll := checkForMatch(cfg.TargetWindowTitle, title)
+
+					if matched {
+						if isAll {
+							LogDiag("[!] System Set to match ALL windows with ##ALL## parameter")
+							LogDiag("Typing OTP into '%s'", title)
+						} else {
+							LogDiag("Active Window Matches. Typing OTP into '%s'", title)
+						}
+
+						time.Sleep(time.Duration(cfg.ActiveWindowDelay) * time.Millisecond)
+						emulateTyping(otp, cfg)
+
+						// Show Pop up notification, if enabled
+						if cfg.ShowNotifications >= 1 {
+							// Use Beeep to show a toast notification
+							notify := beeep.Notify("YubiOTP NFC", "OTP Captured Successfully", iconNormal)
+							if notify != nil {
+								LogDiag("Failed to show notification: OTP Captured Successfully")
+							}
+						}
+
+						// Clear the otp variable
+						otp = "###########"
+
+						// Countdown loop
+						for countdown := cfg.Timeout; countdown > 0; countdown-- {
+							LogDiag("Re-Scanning OTP in '%d' seconds", countdown)
+							time.Sleep(1 * time.Second)
+						}
+						LogDiag("Task complete. Going back to scanning for OTP.")
+						break
+					}
+					time.Sleep(time.Duration(cfg.ActiveWindowDelay) * time.Millisecond)
+					resetCounter++
+					if resetCounter%10 == 0 {
+						LogDiag("OTP Reset Counter is at '%d' out of '%d' Total", resetCounter, divider)
+					}
+					if resetCounter >= divider {
+						LogDiag("OTP Reset Counter reached in '%d' seconds", cfg.OTPCaptureTimeout)
+						// Clear the otp variable
+						otp = "###########"
+						// Log the clear action
+						LogDiag("OTP Cleared - Resetting Capture Process")
+						// exit the loop
+						break
+					}
+				}
 			}
+			time.Sleep(time.Duration(cfg.ActiveWindowDelay) * time.Millisecond)
 		}
-		time.Sleep(time.Duration(cfg.ActiveWindowDelay) * time.Millisecond)
 	}
 }
 
@@ -936,9 +1050,10 @@ func main() {
 	// Temporarily set logs to be Enabled with max length 100
 	logsEnabled = true
 	maxLogLength = 100
+	appPaused = false
 
 	// Start a new diagnostic message log
-	LogDiag("-----  YubiOTP NFC Keyboard Wedge System Tray App (0.76 beta) -----")
+	LogDiag("-----  YubiOTP NFC Keyboard Wedge System Tray App (0.87 beta) -----")
 	LogDiag("-----------------------------------------------------------------------------------------------------------")
 
 	// Load config values and report their values in the log file
@@ -953,10 +1068,13 @@ func main() {
 		LogDiag("Timeout: %d seconds", cfg.Timeout)
 		LogDiag("ActiveWindowDelay: %d milliseconds", cfg.ActiveWindowDelay)
 		LogDiag("KeystrokeDelay: %d milliseconds", cfg.KeystrokeDelay)
+		LogDiag("OTPCaptureTimeout: %d seconds", cfg.OTPCaptureTimeout)
 		LogDiag("PortBinding: %d", cfg.PortBinding)
-		LogDiag("ShowNotifications: %t", cfg.ShowNotifications)
+		LogDiag("ShowNotifications: %d", cfg.ShowNotifications)
 		LogDiag("EnableLogs: %t", cfg.EnableLogs)
 		LogDiag("MaxLogHistory: %d", cfg.MaxLogHistory)
+		LogDiag("ReaderBlackList: %s", strings.Join(cfg.ReaderBlackList, ","))
+		LogDiag("ReaderWhiteList: %s", strings.Join(cfg.ReaderWhiteList, ","))
 	}
 	LogDiag("-----------------------------------------------------------------------------------------------------------")
 	// update these global vars so I don't have to pass them on every call to LogDiag
@@ -985,7 +1103,7 @@ func main() {
 	})
 
 	menu.Add("About", func() {
-		ShowMessageBox("About", "YubiOTP NFC Middleware v 0.80 - 8/30/2026")
+		ShowMessageBox("About", "YubiOTP NFC Middleware v 0.87 - 10/02/2026")
 	})
 
 	menu.AddSeparator()
@@ -996,9 +1114,20 @@ func main() {
 	})
 
 	// Set icon
-	tray.SetIcon(iconData)
+	tray.SetIcon(iconNormal)
 	tray.SetTooltip("YubiOTP NFC Bridge")
 	tray.SetMenu(menu)
+
+	tray.OnDoubleClick(func() {
+		appPaused = !appPaused
+		if appPaused {
+			tray.SetIcon(iconPaused)
+			LogDiag("Application Pause State: %t", appPaused)
+		} else {
+			tray.SetIcon(iconNormal)
+			LogDiag("Application Pause State: %t", appPaused)
+		}
+	})
 
 	ctx, err := scard.EstablishContext()
 	if err != nil {
