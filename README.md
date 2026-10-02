@@ -6,7 +6,7 @@ This is a Windows system tray application that monitors for a target application
 
 # Configuration
 
-The configuration is normally stored in the registry, under HKCU\Software\YubiNFC-OTP.  However, on first run, it will look for the existence of a config.ini file in the application directory.  If present, it will load those values into the registry.  If not present, it will use hard coded default values.
+The configuration is normally stored in the registry, under HKCU\Software\YubiOTP-NFC.  However, on first run, it will look for the existence of a config.ini file in the application directory.  If present, it will load those values into the registry.  If not present, it will use hard coded default values.
 
 ## Configuration Values:
 
@@ -28,21 +28,22 @@ Sample Installation powershell script is provided.  In order for the application
 
 # Usage
 
-Once the application is launched, the icon will appear in the system tray.  Right click to show a menu that allows access to the diagnostic screen.  The diagnostic screen will display the active window, as well as various diagnostic messages useful for testing purposes.  These messages can be exported to a file if necessary.  The menu also has an "about" option and the "exit" option.
+Once the application is launched, the icon will appear in the system tray.  Right click to show a menu that allows access to the diagnostic screen.  The diagnostic screen will display the active window, as well as various diagnostic messages useful for testing purposes.  These messages can be exported to a file if necessary.  The menu also has an "about" option and the "exit" option.  To pause all operations, double click the tray icon and the icon will turn red to indicate the paused state.  The state will also be reflected in the diagnostic log.  Double click again to unpause.
 
 # Version History
 <ins>0.87</ins>
-Added Feature: OTP Timeout Value - Discard unused OTP and reset capture process
-Added Feature: Add support for multiple windows to trigger OTP capture (Changed Target Window Title to a string array)
-Added Feature: Add support for OTP input immediately into active window (no scanning) (Set ##ALL## in Target Window Title config)
-Added Feature: NFC Reader Blacklist (Block "fake" readers)
-Added Feature: NFC Reader Whitelist (Look for specific readers)
-Added Feature: Pause mode - pause scanning for active windows / OTP capture (Double click tray icon to toggle)
-Improvement: Instead of pop up notifications being on or off, set additional granularity (0=Off, 1=Success Only, 2=All)
+* Added Feature: OTP Timeout Value - Discard unused OTP and reset capture process
+* Added Feature: Add support for multiple windows to trigger OTP capture (Changed Target Window Title to a string array)
+* Added Feature: Add support for OTP input immediately into active window (no scanning) (Set ##ALL## in Target Window Title config)
+* Added Feature: NFC Reader Blacklist (Block "fake" readers)
+* Added Feature: NFC Reader Whitelist (Look for specific readers)
+* Added Feature: Pause mode - pause scanning for active windows / OTP capture (Double click tray icon to toggle)
+* Improvement: Instead of pop up notifications being on or off, set additional granularity (0=Off, 1=Success Only, 2=All)
+* Various bug fixes and performance improvements
 
 <ins>0.80</ins>
-Initial self signed compiled release
-Bug fixes and performance enhancements
+* Initial self signed compiled release
+* Bug fixes and performance enhancements
 
 <ins>0.76</ins>
-Initial Internal Release
+* Initial Internal Release
