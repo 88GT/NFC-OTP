@@ -19,9 +19,9 @@ The configuration is normally stored in the registry, under HKCU\Software\YubiOT
 * ShowNotifications = Integer setting of 0,1,2 for showing the pop up notifications (default 1)
 * EnableLogs        = Boolean true or false setting for diagnostic logging of activity (default True)
 * MaxLogHistory     = Integer for Maximum number of lines to keep in the log, older lines will roll off (default 500)
-* EnforceWhiteList  = Boolean true or false setting for enforcing the whitelisted readers
+* EnforceWhiteList  = Boolean true or false setting for enforcing the whitelisted readers (default false)
 * ReaderBlackList   = String array of values to blacklist invalid readers (eg, YubiKey plugged in to USB)
-* ReaderWhiteList   = String array of values to whitelist or "prefer" specific readers
+* ReaderWhiteList   = String array of values to whitelist or "prefer" specific readers (Recommended to have PICC,SAM always)
 
 # Installation
 
