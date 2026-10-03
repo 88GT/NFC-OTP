@@ -171,6 +171,7 @@ type Config struct {
 	ShowNotifications int      // 0, 1, or 2 setting for showing the pop up notifications (default 1 - Suppress Fail Messages)
 	EnableLogs        bool     // True or false setting for diagnostic logging of activity (default True)
 	MaxLogHistory     int      // Maximum number of lines to keep in the log, older lines will roll off (Default 500)
+	EnforceWhiteList  bool     // True or false setting where True will only allow whitelisted readers and false will prefer whitelisted readers but allow others
 	ReaderBlackList   []string // Array of strings that are NFC reader names that will be blacklisted
 	ReaderWhiteList   []string // Array of strings that are NFC reader names that will be whitelisted
 }
@@ -235,6 +236,7 @@ func emulateTyping(text string, cfg *Config) {
 }
 
 // --- SmartCard / NFC Logic ---
+// Look for a suitable reader (Whitelisted, not Blacklisted, or other)
 func findPICCReader(ctx *scard.Context, cfg *Config) (string, error) {
 	readers, err := ctx.ListReaders()
 	if err != nil || len(readers) == 0 {
@@ -245,17 +247,25 @@ func findPICCReader(ctx *scard.Context, cfg *Config) (string, error) {
 	// Log the number of readers found - so we can compare later to how many are being removed
 	LogDiag("Found %d readers", len(readers))
 
-	// Prefer contactless/PICC interface explicitly else check for a non-SAM interface
-	// This loop needs to look through all the list of readers found to first return a PICC or SAM reader
-	for _, r := range readers {
-		name := strings.ToUpper(r)
-		if strings.Contains(name, "PICC") || (strings.Contains(name, " CL ") && !strings.Contains(name, "SAM")) {
-			LogDiag("PICC/SAM Reader Found: %s", r)
-			return r, nil
+	// Check to see if any readers are on the whitelist.  If so, use the first reader it finds
+	for i := 0; i < len(readers); i++ {
+		r := readers[i]
+		name := strings.ToLower(r)
+		matched, _ := checkForMatch(cfg.ReaderWhiteList, name)
+		if matched {
+			LogDiag("Using Whitelisted Reader: %s", r)
+			return readers[i], nil
 		}
 	}
 
-	// Next, this code is run if so far we have a list of readers, but none match "PICC", " CL ", or "SAM" in the name
+	// Also, if EnforceWhiteList is true and no readers are found then it will exit out and never process blacklist
+	if cfg.EnforceWhiteList {
+		LogDiag("Whitelist Enforcement is enabled.  No Matching (Whitelisted) Readers Found")
+		LogDiag("Connect a reader matching the whitelist or disable enforcement in config")
+		return "", fmt.Errorf("ERROR: No readers found")
+	}
+
+	// Next, this code is run if so far we have a list of readers, but none matched the Whitelisted readers.
 	// So now we need to return whatever we have left, but we need to remove any readers that are on the ReaderBlackList
 	// NOTE:  IF a yubikey is plugged into USB, it will show up as a reader, so the blacklist should always have FIDO on it
 	for i := 0; i < len(readers); i++ {
@@ -278,21 +288,9 @@ func findPICCReader(ctx *scard.Context, cfg *Config) (string, error) {
 		return "", fmt.Errorf("ERROR: No readers found")
 	}
 
-	// We need to check for the existence of Whitelisted Readers
-	// Right now it will return the first whitelisted reader that is found
-	for i := 0; i < len(readers); i++ {
-		r := readers[i]
-		name := strings.ToLower(r)
-		matched, _ := checkForMatch(cfg.ReaderWhiteList, name)
-		if matched {
-			LogDiag("Using Whitelisted Reader: %s", r)
-			return readers[i], nil
-		}
-	}
-
 	//  If there are any remaining readers left, lets log and return the first one...
 	for i := 0; i < len(readers); i++ {
-		LogDiag("Allowed NFC Reader Found: %s", readers[i])
+		LogDiag("Non-Whitelisted NFC Reader Found: %s", readers[i])
 	}
 
 	// Known limitation - it is only returning the first allowed reader it finds - need to improve this to return all readers
@@ -647,14 +645,14 @@ func wndProc(hwnd uintptr, msg uint32, wParam, lParam uintptr) uintptr {
 
 // loadConfig orchestrates the Registry -> INI fallback logic
 func loadConfig() (*Config, error) {
-	// 1. Try reading from Registry first
+	// Try reading from Registry first
 	cfg, err := readFromRegistry()
 	if err == nil {
 		LogDiag("[Config Source]: Loaded from Windows Registry (HKCU\\Software\\YubiOTP-NFC)")
 		return cfg, nil
 	}
 
-	// 2. Fallback: Read from INI file using standard library
+	// Fallback: Read from INI file using standard library
 	LogDiag("[Config Source]: Registry key missing. Reading from config.ini...")
 	cfg, err = parseINIFile("config.ini")
 	if err != nil {
@@ -662,7 +660,7 @@ func loadConfig() (*Config, error) {
 		return nil, fmt.Errorf("could not read INI file: %w", err)
 	}
 
-	// 3. Save to Registry so future runs skip the INI file
+	// Save to Registry so future runs skip the INI file
 	if err := saveToRegistry(cfg); err != nil {
 		LogDiag("Warning: Failed to write to registry: %v\n", err)
 	} else {
@@ -725,6 +723,11 @@ func readFromRegistry() (*Config, error) {
 		return nil, err
 	}
 
+	EnforceWhiteListVal, _, err := k.GetStringValue("EnforceWhiteList")
+	if err != nil {
+		return nil, err
+	}
+
 	ReaderBlackListVal, _, err := k.GetStringsValue("ReaderBlackList")
 	if err != nil {
 		return nil, err
@@ -736,6 +739,7 @@ func readFromRegistry() (*Config, error) {
 	}
 
 	EnableLogsBool, err := strconv.ParseBool(EnableLogsVal)
+	EnforceWhiteListBool, err := strconv.ParseBool(EnforceWhiteListVal)
 
 	return &Config{
 		TargetWindowTitle: []string(title),
@@ -747,6 +751,7 @@ func readFromRegistry() (*Config, error) {
 		ShowNotifications: int(ShowNotificationsVal),
 		EnableLogs:        bool(EnableLogsBool),
 		MaxLogHistory:     int(MaxLogHistoryVal),
+		EnforceWhiteList:  bool(EnforceWhiteListBool),
 		ReaderBlackList:   []string(ReaderBlackListVal),
 		ReaderWhiteList:   []string(ReaderWhiteListVal),
 	}, nil
@@ -765,8 +770,9 @@ func parseINIFile(filepath string) (*Config, error) {
 		ShowNotifications: 1,
 		EnableLogs:        true,
 		MaxLogHistory:     500,
+		EnforceWhiteList:  false,
 		ReaderBlackList:   []string{"BROADCOM", "FIDO"},
-		ReaderWhiteList:   []string{"ACS"},
+		ReaderWhiteList:   []string{"ACS", "PICC", "SAM"},
 	}
 
 	// Open the file or fall back to the defaults above if the file is missing
@@ -837,6 +843,14 @@ func parseINIFile(filepath string) (*Config, error) {
 			if MaxLogHistoryInt, err := strconv.Atoi(val); err == nil {
 				cfg.MaxLogHistory = MaxLogHistoryInt
 			}
+		case "EnforceWhiteList":
+			EnforceWhiteListStr := val
+			EnforceWhiteListBool, err := strconv.ParseBool(EnforceWhiteListStr)
+			if err != nil {
+				LogDiag("Value for EnforceWhiteList is not true or false!  Setting to false")
+				EnforceWhiteListBool = false
+			}
+			cfg.EnforceWhiteList = EnforceWhiteListBool
 		case "ReaderBlackList":
 			cfg.ReaderBlackList = strings.Split(string(val), ",")
 		case "ReaderWhiteList":
@@ -892,6 +906,10 @@ func saveToRegistry(cfg *Config) error {
 	}
 
 	if err := k.SetDWordValue("MaxLogHistory", uint32(cfg.MaxLogHistory)); err != nil {
+		return err
+	}
+
+	if err := k.SetStringValue("EnforceWhiteList", strconv.FormatBool(cfg.EnforceWhiteList)); err != nil {
 		return err
 	}
 
