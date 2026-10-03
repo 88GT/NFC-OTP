@@ -37,7 +37,7 @@ Once the application is launched, the icon will appear in the system tray.  Righ
 * Added Feature: Add support for multiple windows to trigger OTP capture (Changed Target Window Title to a string array)
 * Added Feature: Add support for OTP input immediately into active window (no scanning) (Set ##ALL## in Target Window Title config)
 * Added Feature: NFC Reader Blacklist (Block "fake" readers)
-* Added Feature: NFC Reader Whitelist (Look for specific readers)
+* Added Feature: NFC Reader Whitelist (Look for specific readers as well as enforce only whitelisted readers)
 * Added Feature: Pause mode - pause scanning for active windows / OTP capture (Double click tray icon to toggle)
 * Improvement: Instead of pop up notifications being on or off, set additional granularity (0=Off, 1=Success Only, 2=All)
 * Various bug fixes and performance improvements
